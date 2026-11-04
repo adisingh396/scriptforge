@@ -1,0 +1,16 @@
+# ScriptForge — public repo
+
+data/iam/
+checkpoints/
+logs/
+outputs/
+scratch/
+.agent-notes/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.pt
+ScriptForge_explained*
+explainer_hindi_viva.md
+test_mp.py
