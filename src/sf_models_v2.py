@@ -67,17 +67,28 @@ class WriterEmbedding(torch.nn.Module):
 
 
 class TextCondition(nn.Module):
-    """character features -> spatial condition map, one attention query per output column."""
+    """character features -> spatial condition map, one attention query per output column.
+
+    Monotonic column-position prior: column i is centred on character
+    (i / cols) * L, and the attention logits get a Gaussian bias favouring
+    nearby characters. This stops all 48 queries collapsing onto a single
+    "average" character and forces each region to pick its own letter.
+    """
 
     def __init__(self, enc_dim=256, cond_ch=16, height=40, width=192, cols=None,
-                 style_dim=0, mid_ch=24, n_writers=0, writer_cond=False):
+                 style_dim=0, mid_ch=24, n_writers=0, writer_cond=False,
+                 attn_sigma=1.5):
         super().__init__()
         self.height, self.width = int(height), int(width)
         self.cols = int(cols or max(8, width // 4))
         self.enc_dim = enc_dim
         self.cond_ch = cond_ch
-        # learned per-column queries: one row per horizontal region of the canvas
+        self.attn_sigma = float(attn_sigma or 1.5)
+        # learned per-column queries
         self.q = nn.Parameter(torch.randn(self.cols, enc_dim) * 0.02)
+        cols_idx = torch.arange(self.cols, dtype=torch.float32)
+        # centre of each column in character units, for L<=24
+        self.register_buffer("col_pos", cols_idx / max(1, self.cols - 1) * 23.0)  # (cols,)
         self.proj = nn.Conv2d(enc_dim, mid_ch, 1)
         self.refine = nn.Sequential(
             _ConvBlock(mid_ch, cond_ch),
@@ -97,9 +108,14 @@ class TextCondition(nn.Module):
             nn.init.zeros_(self.film.bias)
 
     def attention(self, enc, mask):
-        b = enc.shape[0]
+        b, L, _ = enc.shape
         q = self.q.unsqueeze(0).expand(b, -1, -1)               # (B,cols,D)
         logits = torch.bmm(q, enc.transpose(1, 2)) / (self.enc_dim ** 0.5)  # (B,cols,L)
+        # monotonic column-position prior
+        col = self.col_pos.to(enc.device)                        # (cols,)
+        dist = (col.unsqueeze(1) - torch.arange(L, device=enc.device).float().unsqueeze(0)) ** 2  # (cols,L)
+        prior = -dist / (2.0 * self.attn_sigma ** 2)
+        logits = logits + prior.unsqueeze(0) * 2.0
         logits = logits.masked_fill(~mask.unsqueeze(1), -1e4)
         return logits.softmax(dim=-1)                           # (B,cols,L)
 

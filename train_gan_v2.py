@@ -78,8 +78,9 @@ def parse_args():
     p.add_argument("--augment", type=int, default=0, help="1 = enable image augmentation")
     p.add_argument("--lr-g", type=float, default=2e-4)
     p.add_argument("--lr-d", type=float, default=2e-4)
-    p.add_argument("--l1-weight", type=float, default=2.0,
-                   help="shift-tolerant L1 weight (0 = off; the review's 'no pixel L1' option)")
+    p.add_argument("--l1-weight", type=float, default=0.5,
+                   help="shift-tolerant L1 weight (0 = off; the review's 'no pixel L1' option). "
+                        "0.5 is low enough that the mean-blob can't win on L1 alone.")
     p.add_argument("--l1-shift", type=int, default=4,
                    help="max horizontal shift searched by the L1 (0 = strict pixel L1)")
     p.add_argument("--fm-weight", type=float, default=10.0, help="feature-matching weight")
