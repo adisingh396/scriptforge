@@ -9,7 +9,7 @@ Two model versions live in this repo:
 - **v2** (`train_gan_v2.py`, current) — text-sequence conditioned: characters only,
   no font anywhere. U-Net generator + conditional PatchGAN critic.
 
-**Team:** Aditya Singh (2024011005000018), Aniket Tyagi (2024011005000026), Abhay Kumar (2024011005000004)
+**Team:** Aditya Singh (2024011005000018), Aniket Tyagi (2024011005000026), Abhay Kumar (2024011005000004)..
 
 ## How v2 works
 
