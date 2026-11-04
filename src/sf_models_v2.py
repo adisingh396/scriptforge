@@ -69,26 +69,24 @@ class WriterEmbedding(torch.nn.Module):
 class TextCondition(nn.Module):
     """character features -> spatial condition map, one attention query per output column.
 
-    Monotonic column-position prior: column i is centred on character
-    (i / cols) * L, and the attention logits get a Gaussian bias favouring
-    nearby characters. This stops all 48 queries collapsing onto a single
-    "average" character and forces each region to pick its own letter.
+    Per-sample monotonic prior: column i points to character (i/cols)*(L-1),
+    recomputed from each sample's actual length. The old fixed buffer
+    (max L=23) pointed most columns at padded positions for short words.
     """
 
     def __init__(self, enc_dim=256, cond_ch=16, height=40, width=192, cols=None,
                  style_dim=0, mid_ch=24, n_writers=0, writer_cond=False,
-                 attn_sigma=1.5):
+                 attn_sigma=1.5, prior_weight=0.7):
         super().__init__()
         self.height, self.width = int(height), int(width)
         self.cols = int(cols or max(8, width // 4))
         self.enc_dim = enc_dim
         self.cond_ch = cond_ch
         self.attn_sigma = float(attn_sigma or 1.5)
+        self.prior_weight = float(prior_weight or 0.7)
         # learned per-column queries
         self.q = nn.Parameter(torch.randn(self.cols, enc_dim) * 0.02)
-        cols_idx = torch.arange(self.cols, dtype=torch.float32)
-        # centre of each column in character units, for L<=24
-        self.register_buffer("col_pos", cols_idx / max(1, self.cols - 1) * 23.0)  # (cols,)
+        # NOTE: no col_pos buffer — computed per sample from actual L.
         self.proj = nn.Conv2d(enc_dim, mid_ch, 1)
         self.refine = nn.Sequential(
             _ConvBlock(mid_ch, cond_ch),
@@ -107,20 +105,24 @@ class TextCondition(nn.Module):
             nn.init.kaiming_uniform_(self.film.weight, a=0.1)
             nn.init.zeros_(self.film.bias)
 
-    def attention(self, enc, mask):
+    def attention(self, enc, mask, lengths=None):
         b, L, _ = enc.shape
         q = self.q.unsqueeze(0).expand(b, -1, -1)               # (B,cols,D)
         logits = torch.bmm(q, enc.transpose(1, 2)) / (self.enc_dim ** 0.5)  # (B,cols,L)
-        # monotonic column-position prior
-        col = self.col_pos.to(enc.device)                        # (cols,)
-        dist = (col.unsqueeze(1) - torch.arange(L, device=enc.device).float().unsqueeze(0)) ** 2  # (cols,L)
-        prior = -dist / (2.0 * self.attn_sigma ** 2)
-        logits = logits + prior.unsqueeze(0) * 2.0
+        # per-sample monotonic prior
+        cols_idx = torch.arange(self.cols, dtype=torch.float32, device=enc.device)  # (cols,)
+        col_frac = cols_idx / max(1, self.cols - 1)              # (cols,) in [0,1]
+        if lengths is None:
+            lengths = mask.sum(dim=1).clamp(min=1)               # (B,)
+        target = col_frac.unsqueeze(0) * (lengths.float() - 1.0).unsqueeze(1)  # (B,cols)
+        char_pos = torch.arange(L, dtype=torch.float32, device=enc.device)      # (L,)
+        prior = -((target.unsqueeze(2) - char_pos.view(1, 1, L)) ** 2) / (2.0 * self.attn_sigma ** 2)  # (B,cols,L)
+        logits = logits + prior * self.prior_weight
         logits = logits.masked_fill(~mask.unsqueeze(1), -1e4)
         return logits.softmax(dim=-1)                           # (B,cols,L)
 
-    def forward(self, enc, mask, z=None, writer=None):
-        a = self.attention(enc, mask)                           # (B,cols,L)
+    def forward(self, enc, mask, z=None, writer=None, lengths=None):
+        a = self.attention(enc, mask, lengths)                  # (B,cols,L)
         ctx = torch.bmm(a, enc)                                 # (B,cols,D)
         ctx = ctx.transpose(1, 2).unsqueeze(2)                  # (B,D,1,cols)
         ctx = self.proj(ctx)                                    # (B,mid,1,cols)

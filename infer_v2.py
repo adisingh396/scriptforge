@@ -27,7 +27,7 @@ class GenStack(torch.nn.Module):
 
     def forward(self, ids, lens, z=None, writer=None):
         enc, mask = self.T(ids, lens)
-        cond = self.C(enc, mask, z, writer)
+        cond = self.C(enc, mask, z, writer, lens)
         return self.G(cond, z)
 
 
