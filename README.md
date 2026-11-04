@@ -30,15 +30,17 @@ Two model versions live in this repo:
   pairs (`--d-mismatch 0.25`) so it learns correspondence.
 * EMA covers the whole generator stack (text encoder + conditioner + U-Net).
 
-## v2 status (after baseline A: 4000 steps, 18.6 min)
+## v2 status (after writer-conditioned probe, 400 steps)
 
-* `text_delta` 0.000 → 0.133 — the requested text now changes the output. In v1 it
-  stayed at 0.000.
+* `text_delta` 0.000 → 0.085 — the requested text now changes the output. In v1 it
+  stayed at 0.000. Baseline A was 0.000 → 0.133 at 4000 steps.
 * Ink scales with word length and multiple letter clusters appear per word.
-* **Not yet legible.** Two open problems: the critic has collapsed
-  (D(real) ≈ D(fake), so the adversarial term contributes nothing) and the CTC
-  recogniser is not usable yet (see below).
-* Writer-conditioning is implemented and smoke-tested; a full run is pending.
+* **Not yet legible.** Two open problems: the critic is weak (D(real) ≈ D(fake), sign
+  flips), and the CTC recogniser is not usable yet (see below).
+* Writer-conditioning is implemented and smoke-tested (30 steps: writer_acc 0.20 → 0.64,
+  writer-style delta 0.0245). The discriminator now has spectral norm on by default,
+  an AC-GAN writer head, R1 regularisation, and smaller writer-embedding init;
+  a full run is pending.
 
 Evidence: `outputs/samples_v2a/step_004000.png`, `logs/train_v2a.csv`,
 `checkpoints/gan_v2a.pt`. Compare with the v1 mean-collapse in
